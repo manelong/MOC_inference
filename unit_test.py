@@ -92,8 +92,6 @@ def vis_2(input_file, output_file_path, result, config, ref_info ,ball_trace):
                     if frame_id in list(res.keys()) :
                         x1, y1, x2, y2, confid = res[frame_id]
                         print(frame_id)
-                        if confid < 0.2:
-                            continue
                         cv2.rectangle(frame_rgb, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
                         if result.event_type[idx] == 0:
                             cv2.putText(frame_rgb, f'{confid:.2f}', (int(x1), int(y1)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
@@ -161,7 +159,7 @@ def get_ref_info(json_file):
 if __name__ == '__main__':
 
     config = {
-        'model_path': 'pretrained\model_[35]_new_center',  # 模型路径
+        'model_path': 'pretrained\model_[10]_2024-12-23_new_branch_w_fpn',  # 模型路径
         'resize_width': 512,  # 图片resize宽度
         'resize_height': 288,  # 图片resize高度
         'K': 7,  # 帧队列长度
@@ -170,7 +168,7 @@ if __name__ == '__main__':
         'nms_tubelets_threshold': 0.4,  # stubelets的nms阈值
         'top_k': 10,  # nms过滤保留top_k的tube
         'tubes_length_threshold': 5,  # tube的长度阈值,小于这个阈值的tube进行删除
-        'tube_score_threshold': 0.4,  # tube的分数阈值,小于这个阈值的tube进行删除
+        'tube_score_threshold': 0.45,  # tube的分数阈值,小于这个阈值的tube进行删除
         'backbone': 'yolo',# 网络的backbone,现在可选dla_34,resnet_18,yolo
         'max_dist':3.5, # 篮球出手bbox置与投球运动员bbox允许最大距离，例：3.5表示3.5倍篮球bbox宽度
         'max_frame_gap': 1.5, # 篮球出手bbox与投球运动员bbox允许最大时间差，例：1.5表示1.5s
@@ -184,7 +182,7 @@ if __name__ == '__main__':
     # 视频文件路径
     video_paths = get_video_path('test_video_zg')
 
-    output_file_path = 'results5'
+    output_file_path = 'results8_wfpn'
 
     for input_file in video_paths:
         assert os.path.isfile(input_file), f"{input_file} not exists"

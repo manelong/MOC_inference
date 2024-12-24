@@ -57,14 +57,21 @@ class MOC_Branch(nn.Module):
         fill_fc_weights(self.wh)
 
     def forward(self, input_chunk):
+        input_chunk_1 = []
+        input_chunk_2 = []
+        for i in range(len(input_chunk)):
+            input_chunk_1.append(input_chunk[i][0])
+            input_chunk_2.append(input_chunk[i][1])
+
         output = {}
         output_wh = []
-        for feature in input_chunk:
+        for feature in input_chunk_1:
             output_wh.append(self.wh(feature))
-        input_chunk = torch.cat(input_chunk, dim=1)
+        input_chunk_1 = torch.cat(input_chunk_1, dim=1)
+        input_chunk_2 = torch.cat(input_chunk_2, dim=1)
         output_wh = torch.cat(output_wh, dim=1)
-        output['hm'] = self.hm(input_chunk)
-        output['hm_2'] = self.hm_2(input_chunk)
-        output['mov'] = self.mov(input_chunk)
+        output['hm'] = self.hm(input_chunk_1)
+        output['hm_2'] = self.hm_2(input_chunk_2)
+        output['mov'] = self.mov(input_chunk_1)
         output['wh'] = output_wh
         return output

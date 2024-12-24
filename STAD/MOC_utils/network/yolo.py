@@ -206,6 +206,82 @@ class DFL(nn.Module):
 #---------------------------------------------------#
 #   yolo_body
 #---------------------------------------------------#
+
+class MOC_yolo_FPN(nn.Module):
+    def __init__(self, num_layers, phi = 'm', pretrained=False):
+        super(MOC_yolo_FPN, self).__init__()
+
+        depth_dict          = {'n' : 0.33, 's' : 0.33, 'm' : 0.67, 'l' : 1.00, 'x' : 1.00,}
+        width_dict          = {'n' : 0.25, 's' : 0.50, 'm' : 0.75, 'l' : 1.00, 'x' : 1.25,}
+        deep_width_dict     = {'n' : 1.00, 's' : 1.00, 'm' : 0.75, 'l' : 0.50, 'x' : 0.50,}
+        dep_mul, wid_mul, deep_mul = depth_dict[phi], width_dict[phi], deep_width_dict[phi]
+
+        base_channels       = int(wid_mul * 64)  # 64
+        base_depth          = max(round(dep_mul * 3), 1)  # 3
+        self.output_channel = 64
+        #------------------------加强特征提取网络_2------------------------# 
+        self.upsample_2   = nn.Upsample(scale_factor=2, mode="nearest")
+
+        # 1024 * deep_mul + 512, 40, 40 => 512, 40, 40
+        self.conv3_for_upsample1_2    = C2f(int(base_channels * 16 * deep_mul) + base_channels * 8, base_channels * 8, base_depth, shortcut=False)
+        # 768, 80, 80 => 256, 80, 80
+        self.conv3_for_upsample2_2    = C2f(base_channels * 8 + base_channels * 4, base_channels * 4, base_depth, shortcut=False)
+        
+        # 256, 80, 80 => 256, 40, 40
+        self.down_sample1_2           = Conv(base_channels * 4, base_channels * 4, 3, 2)
+        # 512 + 256, 40, 40 => 512, 40, 40
+        self.conv3_for_downsample1_2  = C2f(base_channels * 8 + base_channels * 4, base_channels * 8, base_depth, shortcut=False)
+
+        # 512, 40, 40 => 512, 20, 20
+        self.down_sample2_2           = Conv(base_channels * 8, base_channels * 8, 3, 2)
+        # 1024 * deep_mul + 512, 20, 20 =>  1024 * deep_mul, 20, 20
+        self.conv3_for_downsample2_2  = C2f(int(base_channels * 16 * deep_mul) + base_channels * 8, int(base_channels * 16 * deep_mul), base_depth, shortcut=False)
+        #------------------------加强特征提取网络_2------------------------# 
+        # 融合P3、P4、P5的卷积层_2
+        self.conv_fuse_345_2 = nn.Conv2d(int(256*wid_mul+512*wid_mul+1024*wid_mul*deep_mul), self.output_channel, kernel_size=3, stride=1, padding=1)
+
+    def forward(self, feat1, feat2, feat3):
+        #------------------------加强特征提取网络_2------------------------# 
+        # 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
+        P5_upsample_2 = self.upsample_2(feat3)
+        # 1024 * deep_mul, 40, 40 cat 512, 40, 40 => 1024 * deep_mul + 512, 40, 40
+        P4_2          = torch.cat([P5_upsample_2, feat2], 1)
+        # 1024 * deep_mul + 512, 40, 40 => 512, 40, 40
+        P4_2          = self.conv3_for_upsample1_2(P4_2)
+
+        # 512, 40, 40 => 512, 80, 80
+        P4_upsample_2 = self.upsample_2(P4_2)
+        # 512, 80, 80 cat 256, 80, 80 => 768, 80, 80
+        P3_2          = torch.cat([P4_upsample_2, feat1], 1)
+        # 768, 80, 80 => 256, 80, 80
+        P3_2          = self.conv3_for_upsample2_2(P3_2)
+
+        # 256, 80, 80 => 256, 40, 40
+        P3_downsample_2 = self.down_sample1_2(P3_2)
+        # 512, 40, 40 cat 256, 40, 40 => 768, 40, 40
+        P4_2 = torch.cat([P3_downsample_2, P4_2], 1)
+        # 768, 40, 40 => 512, 40, 40
+        P4_2 = self.conv3_for_downsample1_2(P4_2)
+
+        # 512, 40, 40 => 512, 20, 20
+        P4_downsample_2 = self.down_sample2_2(P4_2)
+        # 512, 20, 20 cat 1024 * deep_mul, 20, 20 => 1024 * deep_mul + 512, 20, 20
+        P5_2 = torch.cat([P4_downsample_2, feat3], 1)
+        # 1024 * deep_mul + 512, 20, 20 => 1024 * deep_mul, 20, 20
+        P5_2 = self.conv3_for_downsample2_2(P5_2)
+        #------------------------加强特征提取网络_2------------------------# 
+
+        # 新的特征融合
+        x_2 = [P3_2, P4_2, P5_2]
+
+        P4_upsampled_2 = torch.nn.functional.interpolate(P4_2,scale_factor=2)
+        P5_upsampled_2 = torch.nn.functional.interpolate(P5_2,scale_factor=4)
+
+        P3_P4_P5_cat_2 = torch.cat([P3_2, P4_upsampled_2, P5_upsampled_2], dim=1)  # [C1+C2+C3, 64, 128]
+        x_2 = self.conv_fuse_345_2(P3_P4_P5_cat_2)  # [64, 64, 128]
+
+        return x_2
+
 class MOC_yolo(nn.Module):
     def __init__(self, num_layers, phi = 'm', pretrained=False):
         super(MOC_yolo, self).__init__()
@@ -268,6 +344,8 @@ class MOC_yolo(nn.Module):
 
         # 融合P3、P4、P5的卷积层
         self.conv_fuse_345 = nn.Conv2d(int(256*wid_mul+512*wid_mul+1024*wid_mul*deep_mul), self.output_channel, kernel_size=3, stride=1, padding=1)
+
+        self.FPN = MOC_yolo_FPN(num_layers, phi, pretrained)
 
     def fuse(self):
         print('Fusing layers... ')
@@ -333,6 +411,8 @@ class MOC_yolo(nn.Module):
         P3_P4_P5_cat = torch.cat([P3, P4_upsampled, P5_upsampled], dim=1)  # [C1+C2+C3, 64, 128]
         x = self.conv_fuse_345(P3_P4_P5_cat)  # [64, 64, 128]
 
+        x_2 = self.FPN(feat1, feat2, feat3)
+
         # if self.shape != shape:
         #     self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
         #     self.shape = shape
@@ -343,4 +423,4 @@ class MOC_yolo(nn.Module):
         # # origin_cls      = [xi.split((self.reg_max * 4, self.num_classes), 1)[1] for xi in x]
         # dbox            = self.dfl(box)
         # return dbox, cls, x, self.anchors.to(dbox.device), self.strides.to(dbox.device)
-        return x
+        return x, x_2
